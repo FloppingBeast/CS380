@@ -3,6 +3,7 @@
 
 #define WIDTH 40
 #define HEIGHT 40
+#define PRINT false // Set to true to enable debug printing
 
 class AStarPather
 {
@@ -28,11 +29,11 @@ public:
 private:
   
   // Enum for creation of unvisited, open, closed lists
-  enum class List
-  {
-    eUnvisited = 0,
+  enum class List : uint8_t 
+  { 
+    eUnvisited = 0, 
     eOpen,
-    eClosed
+    eClosed 
   };
 
   struct Node
@@ -59,9 +60,6 @@ private:
   // Calculate given cost
   float CalculateGivenCost(const Node* curr, const Node* next);
 
-  // Find valid neighbors of a node
-  void FindValidNeighbors(const Node* curr, std::vector<Node*>& neighbors);
-
   // New path request
   void NewPathRequest(PathRequest& request);
 
@@ -71,27 +69,76 @@ private:
   // Smoothing the path if requested
   void SmoothPath(PathRequest& request);
 
+  // Function to call whenever the map changes to precompute any necessary data
+  void OnMapChange();
+
+  inline int index_for(const GridPos& pos) const {
+    return pos.row * WIDTH + pos.col;
+  }
+  inline int index_for(int row, int col) const {
+    return row * WIDTH + col;
+  }
+  inline GridPos pos_for(int index) {
+    return { index / WIDTH, index % WIDTH };
+  }
+
   // 40 by 40 grid representing the map
-  Node grid[HEIGHT][WIDTH];
+  Node grid[HEIGHT * WIDTH];
+
+  std::vector<Node*> precomputedNeighbors[HEIGHT * WIDTH];
 
   Node* goalNode;
 
-  // Mock open list to get program running and working first
-  class OpenList {
+  class OpenList 
+  {
   public:
-    void push(Node* node) { list.push_back(node); }
-    Node* pop() {
-      auto it = std::min_element(list.begin(), list.end(),
-        [](Node* a, Node* b) { return a->finalCost < b->finalCost; });
-      Node* n = *it;
-      list.erase(it);
-      return n;
+    OpenList() : size(0) {}
+
+    // increment last
+    void push(Node* node) 
+    {
+      heap[size++] = node;
     }
-    void clear() { list.clear(); }
-    bool empty() const { return list.empty(); }
+
+    Node* pop() 
+    {
+      if (size > 0)
+      {
+        int cheapest = 0;
+
+        for (int i = 1; i < size; ++i)
+        {
+          if (heap[i]->finalCost < heap[cheapest]->finalCost)
+          {
+            cheapest = i;
+          }
+        }
+
+        // After finding cheapest index, replace with last element in list
+        Node* returnNode = heap[cheapest];
+        heap[cheapest] = heap[--size];
+
+        if (PRINT)
+        {
+          std::cout << "Size: " << size << ", Popped Node: ("
+            << returnNode->gridPos.row << ","
+            << returnNode->gridPos.col << ") f="
+            << returnNode->finalCost << "\n";
+        }
+        
+        return returnNode;
+      }
+
+      return nullptr;
+    }
+
+    bool empty() const { return size == 0; }
+
+    void clear() { size = 0; }
 
   private:
-    std::vector<Node*> list;
+    Node* heap[HEIGHT * WIDTH * 2];
+    int size;
   };
 
   OpenList openList;

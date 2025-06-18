@@ -2,8 +2,6 @@
 #include "Projects/ProjectTwo.h"
 #include "P2_Pathfinding.h"
 
-#define PRINT false // Set to true to enable debug printing
-
 #pragma region Extra Credit 
 bool ProjectTwo::implemented_floyd_warshall()
 {
@@ -19,21 +17,28 @@ bool ProjectTwo::implemented_goal_bounding()
 
 bool AStarPather::initialize()
 {
-    // handle any one-time setup requirements you have
+  // handle any one-time setup requirements you have
 
-    /*
-        If you want to do any map-preprocessing, you'll need to listen
-        for the map change message.  It'll look something like this:
+  /*
+      If you want to do any map-preprocessing, you'll need to listen
+      for the map change message.  It'll look something like this:
 
-        Callback cb = std::bind(&AStarPather::your_function_name, this);
-        Messenger::listen_for_message(Messages::MAP_CHANGE, cb);
+      Callback cb = std::bind(&AStarPather::your_function_name, this);
+      Messenger::listen_for_message(Messages::MAP_CHANGE, cb);
 
-        There are other alternatives to using std::bind, so feel free to mix it up.
-        Callback is just a typedef for std::function<void(void)>, so any std::invoke'able
-        object that std::function can wrap will suffice.
-    */
+      There are other alternatives to using std::bind, so feel free to mix it up.
+      Callback is just a typedef for std::function<void(void)>, so any std::invoke'able
+      object that std::function can wrap will suffice.
+  */
 
-    return true; // return false if any errors actually occur, to stop engine initialization
+  // Hook up the callback for map changes
+  Callback cb = std::bind(&AStarPather::OnMapChange, this);
+  Messenger::listen_for_message(Messages::MAP_CHANGE, cb);
+
+  // If you want to precompute once for the initial map as well:
+  //OnMapChange();
+
+  return true; // return false if any errors actually occur, to stop engine initialization
 }
 
 void AStarPather::shutdown()
@@ -56,10 +61,6 @@ PathResult AStarPather::compute_path(PathRequest& request)
   {
     // Pop the cheapest node off the Open List
     Node* parentNode = openList.pop();
-
-    if (PRINT)
-      std::cout << ">>> POP: (" << parentNode->gridPos.row << "," << parentNode->gridPos.col << ") f=" << parentNode->finalCost << "\n";
-
 
     // If parentNode is the Goal Node, then path found
     if (parentNode == goalNode)
@@ -92,20 +93,14 @@ PathResult AStarPather::compute_path(PathRequest& request)
     // Place parentNode on the Closed List
     parentNode->onClosed = List::eClosed;
 
-    if (PRINT)
-      std::cout << ">>> CLOSED: (" << parentNode->gridPos.row << "," << parentNode->gridPos.col << ")\n";
-
     // Optionally color the closed node for debugging
     if (request.settings.debugColoring)
     {
       terrain->set_color(parentNode->gridPos, Colors::Yellow);
     }
 
-    std::vector<Node*> neighbors;
-    FindValidNeighbors(parentNode, neighbors);
-
     // For all neighboring child nodes of parentNode
-    for (Node* neighbor : neighbors)
+    for (Node* neighbor : precomputedNeighbors[index_for(parentNode->gridPos)])
     {
       // Calculate cost f(x) = g(x) + h(x)
       float tempGivenCost = parentNode->givenCost + CalculateGivenCost(parentNode, neighbor);
@@ -125,18 +120,12 @@ PathResult AStarPather::compute_path(PathRequest& request)
         {
           terrain->set_color(neighbor->gridPos, Colors::Blue);
         }
-        if (PRINT)
-          std::cout << ">>> PUSH NEW: (" << neighbor->gridPos.row << "," << neighbor->gridPos.col << ") f=" << neighbor->finalCost << "\n";
 
         openList.push(neighbor);
       }
       // Else if child node is on Open or Closed List, AND this new one is cheaper,
       else if ((neighbor->onClosed == List::eOpen || neighbor->onClosed == List::eClosed) && tempGivenCost < neighbor->givenCost)
       {
-        if (PRINT) {
-          std::cout << ">>> REUPDATING" << std::endl;
-          std::cout << ">>> BEFORE: (" << neighbor->gridPos.row << "," << neighbor->gridPos.col << ") f=" << neighbor->finalCost << "\n";
-        }
         neighbor->givenCost = tempGivenCost;
         neighbor->finalCost = finalCost;
         neighbor->parent = parentNode;
@@ -144,8 +133,6 @@ PathResult AStarPather::compute_path(PathRequest& request)
         // then take the old expensive one off both lists and put this new cheaper one on the Open List.
         if (neighbor->onClosed == List::eClosed)
         {
-          if (PRINT)
-            std::cout << ">>> REOPEN CLOSED: (" << neighbor->gridPos.row << "," << neighbor->gridPos.col << ") f=" << neighbor->finalCost << "\n";
           neighbor->onClosed = List::eOpen; // re-open it
 
           // Color the open node for debugging
@@ -159,8 +146,6 @@ PathResult AStarPather::compute_path(PathRequest& request)
         // in the priority queue, but not needed for vector.
         // Always push it into the open list again
         // Even if it's already in the open list — let your openList implementation handle duplicates or priority updates.
-        if (PRINT)
-          std::cout << ">>> UPDATE OPEN: (" << neighbor->gridPos.row << "," << neighbor->gridPos.col << ") f=" << neighbor->finalCost << "\n";
         openList.push(neighbor);
       }
     }
@@ -169,8 +154,6 @@ PathResult AStarPather::compute_path(PathRequest& request)
     {
       // If taken too much time this frame, abort search for now and resume next frame
       // (return PathResult::PROCESSING).
-      if (PRINT)
-        std::cout << ">>> Processing step, returning PROCESSING\n";
       return PathResult::PROCESSING;
     }
   }
@@ -181,11 +164,11 @@ PathResult AStarPather::compute_path(PathRequest& request)
 void AStarPather::ClearGrid()
 {
   // Loop through each node on the grid
-  for (size_t y = 0; y < HEIGHT; ++y)
+  for (int y = 0; y < HEIGHT; ++y)
   {
-    for (size_t x = 0; x < WIDTH; ++x)
+    for (int x = 0; x < WIDTH; ++x)
     {
-      Node& tile = grid[y][x];
+      Node& tile = grid[index_for(y, x)];
 
       tile.parent = nullptr;
       tile.givenCost = 0.0f;
@@ -252,124 +235,8 @@ float AStarPather::CalculateGivenCost(const Node* curr, const Node* next)
   return sqrtf(static_cast<float>((xDiff * xDiff) + (yDiff * yDiff)));
 }
 
-// GITHUB COPILOT GENERATION
-void AStarPather::FindValidNeighbors(const Node* curr, std::vector<Node*>& neighbors)
-{
-  // Look at the grid position of this node
-  const GridPos& pos = curr->gridPos;
-
-  // Create the four cardinal directions positions
-  GridPos northPos = { pos.row + 1, pos.col };
-  GridPos southPos = { pos.row - 1, pos.col };
-  GridPos eastPos = { pos.row, pos.col + 1 };
-  GridPos westPos = { pos.row, pos.col - 1 };
-
-  // Check cardinal directions
-  bool north = (!terrain->is_valid_grid_position(northPos) || terrain->is_wall(northPos)) ? false : true;
-  bool south = (!terrain->is_valid_grid_position(southPos) || terrain->is_wall(southPos)) ? false : true;
-  bool east = (!terrain->is_valid_grid_position(eastPos) || terrain->is_wall(eastPos)) ? false : true;
-  bool west = (!terrain->is_valid_grid_position(westPos) || terrain->is_wall(westPos)) ? false : true;
-
-  if (north)
-  {
-    Node& northNode = grid[northPos.row][northPos.col];
-
-      northNode.gridPos = northPos;
-      neighbors.push_back(&northNode);
-    
-  }
-
-  if (south)
-  {
-    Node& southNode = grid[southPos.row][southPos.col];
-
-      southNode.gridPos = southPos;
-      neighbors.push_back(&southNode);
-    
-  }
-
-  if (east)
-  {
-    Node& eastNode = grid[eastPos.row][eastPos.col];
-
-      eastNode.gridPos = eastPos;
-      neighbors.push_back(&eastNode);
-    
-  }
-
-  if (west)
-  {
-    Node& westNode = grid[westPos.row][westPos.col];
-
-      westNode.gridPos = westPos;
-      neighbors.push_back(&westNode);
-    
-  }
-
-  // Check diagonal neigfhbors to see if they are valid
-  GridPos northEastPos = { pos.row + 1, pos.col + 1 };
-  GridPos northWestPos = { pos.row + 1, pos.col - 1 };
-  GridPos southEastPos = { pos.row - 1, pos.col + 1 };
-  GridPos southWestPos = { pos.row - 1, pos.col - 1 };
-
-  if (north && east && terrain->is_valid_grid_position(northEastPos))
-  {
-    Node& northEastNode = grid[northEastPos.row][northEastPos.col];
-    if (!terrain->is_wall(northEastPos))
-    {
-      northEastNode.gridPos = northEastPos;
-      neighbors.push_back(&northEastNode);
-    }
-  }
-
-  if (north && west && terrain->is_valid_grid_position(northWestPos))
-  {
-    Node& northWestNode = grid[northWestPos.row][northWestPos.col];
-    if (!terrain->is_wall(northWestPos))
-    {
-      northWestNode.gridPos = northWestPos;
-      neighbors.push_back(&northWestNode);
-    }
-  }
-
-  if (south && east && terrain->is_valid_grid_position(southEastPos))
-  {
-    Node& southEastNode = grid[southEastPos.row][southEastPos.col];
-    if (!terrain->is_wall(southEastPos))
-    {
-      southEastNode.gridPos = southEastPos;
-      neighbors.push_back(&southEastNode);
-    }
-  }
-
-  if (south && west && terrain->is_valid_grid_position(southWestPos))
-  {
-    Node& southWestNode = grid[southWestPos.row][southWestPos.col];
-    if (!terrain->is_wall(southWestPos))
-    {
-      southWestNode.gridPos = southWestPos;
-      neighbors.push_back(&southWestNode);
-    }
-  }
-}
-
 void AStarPather::NewPathRequest(PathRequest& request)
 {
-  if (PRINT)
-  {
-    std::cout << "\n>>> NEW PATH REQUEST: Start(" << request.start.x << "," << request.start.z << ") Goal(" << request.goal.x << "," << request.goal.z << ")\n";
-
-
-    // Check to see how far about grid squares are in world coords
-    Vec3 pos0 = terrain->get_world_position(GridPos{ 0, 0 });
-    Vec3 pos1 = terrain->get_world_position(GridPos{ 0, 1 });
-
-    Vec3 distance = pos1 - pos0;
-
-    // Print the distance between two grid squares
-    std::cout << ">>> GRID SQUARE DISTANCE: (" << distance.x << "," << distance.z << ")\n";
-  }
-
   // Clear the grid
   ClearGrid();
 
@@ -378,7 +245,7 @@ void AStarPather::NewPathRequest(PathRequest& request)
 
   // Push Start Node onto the Open List 
   GridPos startPos = terrain->get_grid_position(request.start);
-  Node& startNode = grid[startPos.row][startPos.col];
+  Node& startNode = grid[index_for(startPos.row, startPos.col)];
   startNode.gridPos = startPos;
   startNode.onClosed = List::eOpen;
 
@@ -390,12 +257,9 @@ void AStarPather::NewPathRequest(PathRequest& request)
   startNode.parent = nullptr;
   openList.push(&startNode);
 
-  if (PRINT)
-    std::cout << ">>> PUSH START: (" << startPos.row << "," << startPos.col << ")\n";
-
   // Update the end node position
   GridPos endPos = terrain->get_grid_position(request.goal);
-  Node& endNode = grid[endPos.row][endPos.col];
+  Node& endNode = grid[index_for(endPos.row,endPos.col)];
   endNode.gridPos = endPos;
   goalNode = &endNode;
 
@@ -499,22 +363,10 @@ void AStarPather::SmoothPath(PathRequest& request)
 
       float dist = std::sqrt((distanceVec.x * distanceVec.x) + (distanceVec.z * distanceVec.z));
 
-      if (PRINT)
-      {
-        // Print the current indices, the grid positions, and the distance
-        std::cout << ">>> CHECKING: i=" << i << " current=(" << currentSquare.row << "," << currentSquare.col << ") next=("
-          << nextSquare.row << "," << nextSquare.col << ") dist=" << dist << "\n";
-      }
-
       if (dist > maxDistance)
       {
         // Calculate a point in the middle of the two points
         Vec3 midPoint = (current + next) * 0.5f;
-
-        if (PRINT)
-        {
-          std::cout << ">>> INSERTING MIDPOINT: (" << midPoint.x << "," << midPoint.z << ") between indices " << i << " and " << (i + 1) << "\n";
-        }
 
         // Add the midPoint to the pathVector
         pathVector.insert(pathVector.begin() + (i + 1), midPoint);
@@ -522,8 +374,6 @@ void AStarPather::SmoothPath(PathRequest& request)
       else
       {
         // We can increment to the next point
-        if (PRINT)
-          std::cout << ">>> NO MIDPOINT INSERTED, MOVING TO NEXT POINT\n";
         ++i;
       }
     }
@@ -586,4 +436,57 @@ void AStarPather::SmoothPath(PathRequest& request)
   // Replace the original path with the smoothed path
   request.path.clear();
   request.path.insert(request.path.end(), smoothedPath.begin(), smoothedPath.end());
+}
+
+void AStarPather::OnMapChange()
+{
+  for (int row = 0; row < HEIGHT; ++row)
+  {
+    for (int col = 0; col < WIDTH; ++col)
+    {
+      // Initialize the grid node
+      Node& node = grid[index_for(row,col)];
+      node.gridPos = { row, col };
+
+      int idx = index_for(row, col);
+      precomputedNeighbors[idx].clear();
+
+      if (!terrain->is_valid_grid_position(node.gridPos) || terrain->is_wall(node.gridPos))
+      {
+        continue;
+      }
+
+      for (int dy = -1; dy <= 1; ++dy)
+      {
+        for (int dx = -1; dx <= 1; ++dx)
+        {
+          // Itself
+          if (dx == 0 && dy == 0)
+          {
+            continue;
+          }
+
+          int ny = row + dy;
+          int nx = col + dx;
+
+          GridPos neighborPos{ ny, nx };
+
+          if (!terrain->is_valid_grid_position(neighborPos) || terrain->is_wall(neighborPos))
+          {
+            continue;
+          }
+
+          if (abs(dx) + abs(dy) == 2)
+          {
+            if (terrain->is_wall({ row, col + dx }) || terrain->is_wall({ row + dy, col }))
+            {
+              continue;
+            }
+          }
+
+          precomputedNeighbors[idx].push_back(&grid[index_for(ny, nx)]);
+        }
+      }
+    }
+  }
 }
