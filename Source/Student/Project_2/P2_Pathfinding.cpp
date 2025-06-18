@@ -44,29 +44,6 @@ void AStarPather::shutdown()
 
 PathResult AStarPather::compute_path(PathRequest& request)
 {
-  /*
-  If (request.newRequest) {
-      Initialize everything. Clear Open/Closed Lists.
-      Push Start Node onto the Open List with cost of f(x) = g(x) + h(x).
-  }
-  While (Open List is not empty) {
-    parentNode = Pop cheapest node off Open List.
-    If parentNode is the Goal Node, then path found (return PathResult::COMPLETE).
-    Place parentNode on the Closed List.
-    For (all neighboring child nodes of parentNode) {
-      Compute its cost, f(x) = g(x) + h(x)
-      If child node isn’t on Open or Closed list, put it on Open List.
-      Else if child node is on Open or Closed List, AND this new one is cheaper,
-        then take the old expensive one off both lists and put this new
-        cheaper one on the Open List.
-      }
-      If taken too much time this frame (or if request.settings.singleStep == true),
-         abort search for now and resume next frame (return PathResult::PROCESSING).
-  }
-  Open List empty, thus no path possible (return PathResult::IMPOSSIBLE).
-
-  */
-
   // Check to see if new path has been requested
   if (request.newRequest)
   {
@@ -81,6 +58,12 @@ PathResult AStarPather::compute_path(PathRequest& request)
     Node& startNode = grid[startPos.row][startPos.col];
     startNode.gridPos = startPos;
     startNode.onClosed = List::eOpen;
+
+    if (request.settings.debugColoring)
+    {
+      terrain->set_color(startPos, Colors::Blue);
+    }
+
     startNode.parent = nullptr;
     openList.push(&startNode);
 
@@ -94,18 +77,6 @@ PathResult AStarPather::compute_path(PathRequest& request)
     startNode.givenCost = 0.0f;
     startNode.finalCost = startNode.givenCost + (CalculateHeuristicCost(request.settings.heuristic, startNode, endNode) * request.settings.weight);
   }
-
-  // While Open List is not empty
-  //  parentNode = Pop cheapest node off Open List.
-  //  If parentNode is the Goal Node, then path found(return PathResult::COMPLETE).
-  //  Place parentNode on the Closed List.
-  //  For(all neighboring child nodes of parentNode) {
-  //    Compute its cost, f(x) = g(x) + h(x)
-  //    If child node isn’t on Open or Closed list, put it on Open List.
-  //    Else if child node is on Open or Closed List, AND this new one is cheaper,
-  //    then take the old expensive one off both lists and put this new
-  //    cheaper one on the Open List.
-  //  }
 
   while (!openList.empty())
   {
@@ -144,7 +115,7 @@ PathResult AStarPather::compute_path(PathRequest& request)
       // Calculate cost f(x) = g(x) + h(x)
       float tempGivenCost = parentNode->givenCost + CalculateGivenCost(parentNode, neighbor);
       float heuristicCost = CalculateHeuristicCost(request.settings.heuristic, *neighbor, *goalNode);
-      float finalCost = neighbor->givenCost + (heuristicCost * request.settings.weight);
+      float finalCost = tempGivenCost + (heuristicCost * request.settings.weight);
 
       // If child node isn’t on Open or Closed list, put it on Open List.
       if (neighbor->onClosed == List::eUnvisited)
@@ -183,6 +154,9 @@ PathResult AStarPather::compute_path(PathRequest& request)
 
         // In an optimized structure, you'd also update its position
         // in the priority queue, but not needed for vector.
+        // Always push it into the open list again
+        // Even if it's already in the open list — let your openList implementation handle duplicates or priority updates.
+        openList.push(neighbor);
       }
     }
 
@@ -192,50 +166,8 @@ PathResult AStarPather::compute_path(PathRequest& request)
       // (return PathResult::PROCESSING).
       return PathResult::PROCESSING;
     }
-
-    /*
-        This is where you handle pathing requests, each request has several fields:
-
-        start/goal - start and goal world positions
-        path - where you will build the path upon completion, path should be
-            start to goal, not goal to start
-        heuristic - which heuristic calculation to use
-        weight - the heuristic weight to be applied
-        newRequest - whether this is the first request for this path, should generally
-            be true, unless single step is on
-
-        smoothing - whether to apply smoothing to the path
-        rubberBanding - whether to apply rubber banding
-        singleStep - whether to perform only a single A* step
-        debugColoring - whether to color the grid based on the A* state:
-            closed list nodes - yellow
-            open list nodes - blue
-
-            use terrain->set_color(row, col, Colors::YourColor);
-            also it can be helpful to temporarily use other colors for specific states
-            when you are testing your algorithms
-
-        method - which algorithm to use: A*, Floyd-Warshall, JPS+, or goal bounding,
-            will be A* generally, unless you implement extra credit features
-
-        The return values are:
-            PROCESSING - a path hasn't been found yet, should only be returned in
-                single step mode until a path is found
-            COMPLETE - a path to the goal was found and has been built in request.path
-            IMPOSSIBLE - a path from start to goal does not exist, do not add start position to path
-    */
-
-    // WRITE YOUR CODE HERE
-
-
-    // Just sample code, safe to delete
-    /*GridPos start = terrain->get_grid_position(request.start);
-    GridPos goal = terrain->get_grid_position(request.goal);
-    terrain->set_color(start, Colors::Orange);
-    terrain->set_color(goal, Colors::Orange);
-    request.path.push_back(request.start);
-    request.path.push_back(request.goal);*/
   }
+
   return PathResult::IMPOSSIBLE;
 }
 
@@ -283,12 +215,12 @@ float AStarPather::CalculateHeuristicCost(const Heuristic& heuristic, const Node
 
     // Inconsistent Heuristic code given by Professor Rabin
   case Heuristic::INCONSISTENT:
-    if ((curr.gridPos.row + curr.gridPos.col) % 2 <= 0)
+    if ((curr.gridPos.row + curr.gridPos.col) % 2 > 0)
     {
-      return 0;
+      distance = sqrtf((xDiff * xDiff) + (yDiff * yDiff));
     }
-    // PURPOSEFULLY FALL THROUGH TO EUCLIDEAN DISTANCE
-    __fallthrough;
+    break;
+
 
     // sqrt(xDiff2 + yDiff2) 
   case Heuristic::EUCLIDEAN:
@@ -310,7 +242,7 @@ float AStarPather::CalculateGivenCost(const Node* curr, const Node* next)
   int yDiff = curr->gridPos.row - next->gridPos.row;
   
   // If the next node is diagonal, then the cost is sqrt(2)
-  return curr->givenCost +  sqrtf(static_cast<float>((xDiff * xDiff) + (yDiff * yDiff)));
+  return sqrtf(static_cast<float>((xDiff * xDiff) + (yDiff * yDiff)));
 }
 
 // GITHUB COPILOT GENERATION
@@ -334,41 +266,37 @@ void AStarPather::FindValidNeighbors(const Node* curr, std::vector<Node*>& neigh
   if (north)
   {
     Node& northNode = grid[northPos.row][northPos.col];
-    if (northNode.onClosed != List::eClosed)
-    {
+
       northNode.gridPos = northPos;
       neighbors.push_back(&northNode);
-    }
+    
   }
 
   if (south)
   {
     Node& southNode = grid[southPos.row][southPos.col];
-    if (southNode.onClosed != List::eClosed)
-    {
+
       southNode.gridPos = southPos;
       neighbors.push_back(&southNode);
-    }
+    
   }
 
   if (east)
   {
     Node& eastNode = grid[eastPos.row][eastPos.col];
-    if (eastNode.onClosed != List::eClosed)
-    {
+
       eastNode.gridPos = eastPos;
       neighbors.push_back(&eastNode);
-    }
+    
   }
 
   if (west)
   {
     Node& westNode = grid[westPos.row][westPos.col];
-    if (westNode.onClosed != List::eClosed)
-    {
+
       westNode.gridPos = westPos;
       neighbors.push_back(&westNode);
-    }
+    
   }
 
   // Check diagonal neigfhbors to see if they are valid
@@ -377,40 +305,40 @@ void AStarPather::FindValidNeighbors(const Node* curr, std::vector<Node*>& neigh
   GridPos southEastPos = { pos.row - 1, pos.col + 1 };
   GridPos southWestPos = { pos.row - 1, pos.col - 1 };
 
-  if (north && east)
+  if (north && east && terrain->is_valid_grid_position(northEastPos))
   {
     Node& northEastNode = grid[northEastPos.row][northEastPos.col];
-    if (northEastNode.onClosed != List::eClosed && !terrain->is_wall(northEastPos))
+    if (!terrain->is_wall(northEastPos))
     {
       northEastNode.gridPos = northEastPos;
       neighbors.push_back(&northEastNode);
     }
   }
 
-  if (north && west)
+  if (north && west && terrain->is_valid_grid_position(northWestPos))
   {
     Node& northWestNode = grid[northWestPos.row][northWestPos.col];
-    if (northWestNode.onClosed != List::eClosed && !terrain->is_wall(northWestPos))
+    if (!terrain->is_wall(northWestPos))
     {
       northWestNode.gridPos = northWestPos;
       neighbors.push_back(&northWestNode);
     }
   }
 
-  if (south && east)
+  if (south && east && terrain->is_valid_grid_position(southEastPos))
   {
     Node& southEastNode = grid[southEastPos.row][southEastPos.col];
-    if (southEastNode.onClosed != List::eClosed && !terrain->is_wall(southEastPos))
+    if (!terrain->is_wall(southEastPos))
     {
       southEastNode.gridPos = southEastPos;
       neighbors.push_back(&southEastNode);
     }
   }
 
-  if (south && west)
+  if (south && west && terrain->is_valid_grid_position(southWestPos))
   {
     Node& southWestNode = grid[southWestPos.row][southWestPos.col];
-    if (southWestNode.onClosed != List::eClosed && !terrain->is_wall(southWestPos))
+    if (!terrain->is_wall(southWestPos))
     {
       southWestNode.gridPos = southWestPos;
       neighbors.push_back(&southWestNode);
