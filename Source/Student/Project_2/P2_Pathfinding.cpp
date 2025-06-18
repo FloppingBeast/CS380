@@ -68,7 +68,7 @@ PathResult AStarPather::compute_path(PathRequest& request)
   */
 
   // Check to see if new path has been requested
-  if (request.newRequest) 
+  if (request.newRequest)
   {
     // Clear the grid
     ClearGrid();
@@ -89,10 +89,10 @@ PathResult AStarPather::compute_path(PathRequest& request)
     Node& endNode = grid[endPos.row][endPos.col];
     endNode.gridPos = endPos;
     goalNode = &endNode;
-    
+
     // Calculate final cost f(x) = g(x) + h(x).
     startNode.givenCost = 0.0f;
-    startNode.finalCost = startNode.givenCost + CalculateHeuristicCost(request.settings.heuristic, startNode, endNode);
+    startNode.finalCost = startNode.givenCost + (CalculateHeuristicCost(request.settings.heuristic, startNode, endNode) * request.settings.weight);
   }
 
   // While Open List is not empty
@@ -139,81 +139,104 @@ PathResult AStarPather::compute_path(PathRequest& request)
     FindValidNeighbors(parentNode, neighbors);
 
     // For all neighboring child nodes of parentNode
-    for (const auto& neighbor : terrain->get_neighbors(parentNode->gridPos))
+    for (Node* neighbor : neighbors)
     {
-      Node& childNode = grid[neighbor.row][neighbor.col];
-      // Skip if child node is already on Closed List
-      if (childNode.onClosed == List::eClosed)
-        continue;
       // Calculate cost f(x) = g(x) + h(x)
-      float tentativeCost = parentNode->givenCost + terrain->get_movement_cost(parentNode->gridPos, childNode.gridPos);
-      float heuristicCost = CalculateHeuristicCost(request.settings.heuristic, childNode, endNode);
-      float finalCost = tentativeCost + heuristicCost;
+      float tempGivenCost = parentNode->givenCost + CalculateGivenCost(parentNode, neighbor);
+      float heuristicCost = CalculateHeuristicCost(request.settings.heuristic, *neighbor, *goalNode);
+      float finalCost = neighbor->givenCost + (heuristicCost * request.settings.weight);
+
       // If child node isn’t on Open or Closed list, put it on Open List.
-      if (childNode.onClosed == List::eUnvisited && openList.find(&childNode) == openList.end())
+      if (neighbor->onClosed == List::eUnvisited)
       {
-        childNode.givenCost = tentativeCost;
-        childNode.finalCost = finalCost;
-        childNode.parent = parentNode;
-        childNode.onClosed = List::eOpen;
-        openList.push(&childNode);
+        neighbor->givenCost = tempGivenCost;
+        neighbor->finalCost = finalCost;
+        neighbor->parent = parentNode;
+        neighbor->onClosed = List::eOpen;
+
+        // Color the open node for debugging
+        if (request.settings.debugColoring)
+        {
+          terrain->set_color(neighbor->gridPos, Colors::Blue);
+        }
+
+        openList.push(neighbor);
       }
       // Else if child node is on Open or Closed List, AND this new one is cheaper,
-      // then take the old expensive one off both lists and put this new cheaper one on the Open List.
-      else if (openList.find(&childNode) != openList.end() && tentativeCost < childNode.givenCost)
+      else if ((neighbor->onClosed == List::eOpen || neighbor->onClosed == List::eClosed) && tempGivenCost < neighbor->givenCost)
       {
-        childNode.givenCost = tentativeCost;
-        childNode.finalCost = finalCost;
-        childNode.parent = parentNode;
+        neighbor->givenCost = tempGivenCost;
+        neighbor->finalCost = finalCost;
+        neighbor->parent = parentNode;
+
+        // then take the old expensive one off both lists and put this new cheaper one on the Open List.
+        if (neighbor->onClosed == List::eClosed)
+        {
+          neighbor->onClosed = List::eOpen; // re-open it
+
+          // Color the open node for debugging
+          if (request.settings.debugColoring)
+          {
+            terrain->set_color(neighbor->gridPos, Colors::Blue);
+          }
+        }
+
+        // In an optimized structure, you'd also update its position
+        // in the priority queue, but not needed for vector.
       }
+    }
 
-      // If taken too much time this frame(or if request.settings.singleStep == true),
-      //  abort search for now and resume next frame(return PathResult::PROCESSING).
+    if (request.settings.singleStep)
+    {
+      // If taken too much time this frame, abort search for now and resume next frame
+      // (return PathResult::PROCESSING).
+      return PathResult::PROCESSING;
+    }
+
+    /*
+        This is where you handle pathing requests, each request has several fields:
+
+        start/goal - start and goal world positions
+        path - where you will build the path upon completion, path should be
+            start to goal, not goal to start
+        heuristic - which heuristic calculation to use
+        weight - the heuristic weight to be applied
+        newRequest - whether this is the first request for this path, should generally
+            be true, unless single step is on
+
+        smoothing - whether to apply smoothing to the path
+        rubberBanding - whether to apply rubber banding
+        singleStep - whether to perform only a single A* step
+        debugColoring - whether to color the grid based on the A* state:
+            closed list nodes - yellow
+            open list nodes - blue
+
+            use terrain->set_color(row, col, Colors::YourColor);
+            also it can be helpful to temporarily use other colors for specific states
+            when you are testing your algorithms
+
+        method - which algorithm to use: A*, Floyd-Warshall, JPS+, or goal bounding,
+            will be A* generally, unless you implement extra credit features
+
+        The return values are:
+            PROCESSING - a path hasn't been found yet, should only be returned in
+                single step mode until a path is found
+            COMPLETE - a path to the goal was found and has been built in request.path
+            IMPOSSIBLE - a path from start to goal does not exist, do not add start position to path
+    */
+
+    // WRITE YOUR CODE HERE
+
+
+    // Just sample code, safe to delete
+    /*GridPos start = terrain->get_grid_position(request.start);
+    GridPos goal = terrain->get_grid_position(request.goal);
+    terrain->set_color(start, Colors::Orange);
+    terrain->set_color(goal, Colors::Orange);
+    request.path.push_back(request.start);
+    request.path.push_back(request.goal);*/
   }
-
-  /*
-      This is where you handle pathing requests, each request has several fields:
-
-      start/goal - start and goal world positions
-      path - where you will build the path upon completion, path should be
-          start to goal, not goal to start
-      heuristic - which heuristic calculation to use
-      weight - the heuristic weight to be applied
-      newRequest - whether this is the first request for this path, should generally
-          be true, unless single step is on
-
-      smoothing - whether to apply smoothing to the path
-      rubberBanding - whether to apply rubber banding
-      singleStep - whether to perform only a single A* step
-      debugColoring - whether to color the grid based on the A* state:
-          closed list nodes - yellow
-          open list nodes - blue
-
-          use terrain->set_color(row, col, Colors::YourColor);
-          also it can be helpful to temporarily use other colors for specific states
-          when you are testing your algorithms
-
-      method - which algorithm to use: A*, Floyd-Warshall, JPS+, or goal bounding,
-          will be A* generally, unless you implement extra credit features
-
-      The return values are:
-          PROCESSING - a path hasn't been found yet, should only be returned in
-              single step mode until a path is found
-          COMPLETE - a path to the goal was found and has been built in request.path
-          IMPOSSIBLE - a path from start to goal does not exist, do not add start position to path
-  */
-
-  // WRITE YOUR CODE HERE
-
-
-  // Just sample code, safe to delete
-  GridPos start = terrain->get_grid_position(request.start);
-  GridPos goal = terrain->get_grid_position(request.goal);
-  terrain->set_color(start, Colors::Orange);
-  terrain->set_color(goal, Colors::Orange);
-  request.path.push_back(request.start);
-  request.path.push_back(request.goal);
-  return PathResult::COMPLETE;
+  return PathResult::IMPOSSIBLE;
 }
 
 void AStarPather::ClearGrid()
@@ -236,8 +259,8 @@ void AStarPather::ClearGrid()
 float AStarPather::CalculateHeuristicCost(const Heuristic& heuristic, const Node& curr, const Node& end)
 {
   // Calculate difference between nodes
-  float xDiff = fabsf(curr.gridPos.col - end.gridPos.col);
-  float yDiff = fabsf(curr.gridPos.row - end.gridPos.row);
+  float xDiff = fabsf(static_cast<float>(curr.gridPos.col - end.gridPos.col));
+  float yDiff = fabsf(static_cast<float>(curr.gridPos.row - end.gridPos.row));
 
   float distance = 0.0f;
 
@@ -280,62 +303,117 @@ float AStarPather::CalculateHeuristicCost(const Heuristic& heuristic, const Node
   return distance;
 }
 
-float AStarPather::CalculateGivenCost(const Node& curr)
+float AStarPather::CalculateGivenCost(const Node* curr, const Node* next)
 {
-  return 0.0f;
+  // Find distance between the current node and the next node
+  int xDiff = curr->gridPos.col - next->gridPos.col;
+  int yDiff = curr->gridPos.row - next->gridPos.row;
+  
+  // If the next node is diagonal, then the cost is sqrt(2)
+  return curr->givenCost +  sqrtf(static_cast<float>((xDiff * xDiff) + (yDiff * yDiff)));
 }
 
 // GITHUB COPILOT GENERATION
 void AStarPather::FindValidNeighbors(const Node* curr, std::vector<Node*>& neighbors)
 {
   // Look at the grid position of this node
-  GridPos pos = curr.gridPos;
+  const GridPos& pos = curr->gridPos;
 
-  std::vector<GridPos> invalidPositions;
+  // Create the four cardinal directions positions
+  GridPos northPos = { pos.row + 1, pos.col };
+  GridPos southPos = { pos.row - 1, pos.col };
+  GridPos eastPos = { pos.row, pos.col + 1 };
+  GridPos westPos = { pos.row, pos.col - 1 };
 
-  // Check all 8 possible neighbors (N, NE, E, SE, S, SW, W, NW)
-  for (int rowOffset = -1; rowOffset <= 1; ++rowOffset)
+  // Check cardinal directions
+  bool north = (!terrain->is_valid_grid_position(northPos) || terrain->is_wall(northPos)) ? false : true;
+  bool south = (!terrain->is_valid_grid_position(southPos) || terrain->is_wall(southPos)) ? false : true;
+  bool east = (!terrain->is_valid_grid_position(eastPos) || terrain->is_wall(eastPos)) ? false : true;
+  bool west = (!terrain->is_valid_grid_position(westPos) || terrain->is_wall(westPos)) ? false : true;
+
+  if (north)
   {
-    for (int colOffset = -1; colOffset <= 1; ++colOffset)
+    Node& northNode = grid[northPos.row][northPos.col];
+    if (northNode.onClosed != List::eClosed)
     {
-      // Skip the current node itself
-      if (rowOffset == 0 && colOffset == 0)
-      {
-        continue;
-      }
+      northNode.gridPos = northPos;
+      neighbors.push_back(&northNode);
+    }
+  }
 
-      // Calculate the neighbor's position
-      GridPos neighborPos{ pos.row + rowOffset, pos.col + colOffset };
+  if (south)
+  {
+    Node& southNode = grid[southPos.row][southPos.col];
+    if (southNode.onClosed != List::eClosed)
+    {
+      southNode.gridPos = southPos;
+      neighbors.push_back(&southNode);
+    }
+  }
 
-      if (terrain->is_valid_grid_position(neighborPos))
-      {
-        invalidPositions.push_back(neighborPos);
-        continue; // Skip invalid grid positions
-      }
+  if (east)
+  {
+    Node& eastNode = grid[eastPos.row][eastPos.col];
+    if (eastNode.onClosed != List::eClosed)
+    {
+      eastNode.gridPos = eastPos;
+      neighbors.push_back(&eastNode);
+    }
+  }
 
-      // Check if the neighbor is a wall
-      if (terrain->is_wall(neighborPos))
-      {
-        // Need to know if this is a N, W, S, E neighbor
-        if (abs(rowOffset) == abs(colOffset)
-        {
-          // Diagonal neighbors can not be valid
-          invalidPositions.push_back(neighborPos);
-        }
+  if (west)
+  {
+    Node& westNode = grid[westPos.row][westPos.col];
+    if (westNode.onClosed != List::eClosed)
+    {
+      westNode.gridPos = westPos;
+      neighbors.push_back(&westNode);
+    }
+  }
 
-        continue; // Skip walls or invalid positions
-      }
+  // Check diagonal neigfhbors to see if they are valid
+  GridPos northEastPos = { pos.row + 1, pos.col + 1 };
+  GridPos northWestPos = { pos.row + 1, pos.col - 1 };
+  GridPos southEastPos = { pos.row - 1, pos.col + 1 };
+  GridPos southWestPos = { pos.row - 1, pos.col - 1 };
 
-      Node& neighborNode = grid[neighborPos.row][neighborPos.col];
-      // Only add valid neighbors that are not on the closed list
-      if (neighborNode.onClosed != List::eClosed)
-      {
-        // Not on the closed list, initialize the data within this node
-        neighborNode.gridPos = neighborPos;
+  if (north && east)
+  {
+    Node& northEastNode = grid[northEastPos.row][northEastPos.col];
+    if (northEastNode.onClosed != List::eClosed && !terrain->is_wall(northEastPos))
+    {
+      northEastNode.gridPos = northEastPos;
+      neighbors.push_back(&northEastNode);
+    }
+  }
 
-        neighbors.push_back(&neighborNode);
-      }
+  if (north && west)
+  {
+    Node& northWestNode = grid[northWestPos.row][northWestPos.col];
+    if (northWestNode.onClosed != List::eClosed && !terrain->is_wall(northWestPos))
+    {
+      northWestNode.gridPos = northWestPos;
+      neighbors.push_back(&northWestNode);
+    }
+  }
 
+  if (south && east)
+  {
+    Node& southEastNode = grid[southEastPos.row][southEastPos.col];
+    if (southEastNode.onClosed != List::eClosed && !terrain->is_wall(southEastPos))
+    {
+      southEastNode.gridPos = southEastPos;
+      neighbors.push_back(&southEastNode);
+    }
+  }
+
+  if (south && west)
+  {
+    Node& southWestNode = grid[southWestPos.row][southWestPos.col];
+    if (southWestNode.onClosed != List::eClosed && !terrain->is_wall(southWestPos))
+    {
+      southWestNode.gridPos = southWestPos;
+      neighbors.push_back(&southWestNode);
     }
   }
 }

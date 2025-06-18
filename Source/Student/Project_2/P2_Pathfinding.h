@@ -51,13 +51,13 @@ private:
   // Helper Functions //
 
   // Used for clearing grid
-  void ClearGrid();
+  void ClearGrid( void );
 
   // Calculate heuristic
   float CalculateHeuristicCost(const Heuristic& heuristic, const Node& curr, const Node& end);
 
   // Calculate given cost
-  float CalculateGivenCost(const Node& curr);
+  float CalculateGivenCost(const Node* curr, const Node* next);
 
   // Find valid neighbors of a node
   void FindValidNeighbors(const Node* curr, std::vector<Node*>& neighbors);
@@ -65,7 +65,7 @@ private:
   // 40 by 40 grid representing the map
   Node grid[HEIGHT][WIDTH];
 
-  Node* goalNode = nullptr;
+  Node* goalNode;
 
   // Mock open list to get program running and working first
   class OpenList {
