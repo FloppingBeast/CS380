@@ -62,6 +62,15 @@ private:
   // Find valid neighbors of a node
   void FindValidNeighbors(const Node* curr, std::vector<Node*>& neighbors);
 
+  // New path request
+  void NewPathRequest(PathRequest& request);
+
+  // Rubberbanding the path if requested
+  void RubberbandPath(PathRequest& request);
+
+  // Smoothing the path if requested
+  void SmoothPath(PathRequest& request);
+
   // 40 by 40 grid representing the map
   Node grid[HEIGHT][WIDTH];
 
